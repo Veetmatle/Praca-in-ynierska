@@ -1,0 +1,191 @@
+services:
+  # ────────────────────────────────────────────────────────
+  # PostgreSQL Database
+  # ────────────────────────────────────────────────────────
+  postgres-db:
+    image: postgres:16-alpine
+    container_name: studentapp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-studentapp}
+      POSTGRES_USER: ${POSTGRES_USER:-studentapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-internal
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-studentapp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # ────────────────────────────────────────────────────────
+  # Backend API (ASP.NET Core 9)
+  # ────────────────────────────────────────────────────────
+  backend-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: studentapp-backend
+    restart: unless-stopped
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+      openclaw-api:
+        condition: service_started
+      uniscraper-api:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Host=postgres-db;Database=${POSTGRES_DB:-studentapp};Username=${POSTGRES_USER:-studentapp};Password=${POSTGRES_PASSWORD}
+      - Jwt__Key=${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      - Jwt__Issuer=${JWT_ISSUER:-StudentApp}
+      - Jwt__Audience=${JWT_AUDIENCE:-StudentApp}
+      - Jwt__AccessTokenExpirationMinutes=${JWT_ACCESS_EXPIRY:-15}
+      - Jwt__RefreshTokenExpirationDays=${JWT_REFRESH_EXPIRY:-7}
+      - Encryption__Key=${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      - OpenClaw__BaseUrl=http://openclaw-api:8000
+      - UniScraper__BaseUrl=http://uniscraper-api:8001
+      - Admin__DefaultPassword=${ADMIN_DEFAULT_PASSWORD:-Admin123!}
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    networks:
+      - app-internal
+      - app-external
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ────────────────────────────────────────────────────────
+  # OpenClaw Agent (Python FastAPI)
+  # ────────────────────────────────────────────────────────
+  openclaw-api:
+    build:
+      context: ./openclaw
+      dockerfile: Dockerfile
+    container_name: studentapp-openclaw
+    restart: unless-stopped
+    environment:
+      - PORT=8000
+      - MAX_TOOL_ROUNDS=${MAX_TOOL_ROUNDS:-20}
+      - MAX_TOKENS=${MAX_TOKENS:-4096}
+      - AGENT_SESSION_TIMEOUT_MINUTES=${AGENT_SESSION_TIMEOUT_MINUTES:-10}
+      - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-2}
+      - WORKSPACE_DIR=/workspace
+    volumes:
+      - openclaw-workspace:/workspace
+    networks:
+      - app-internal
+      - agent-external
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ────────────────────────────────────────────────────────
+  # UniScraper (Python FastAPI)
+  # ────────────────────────────────────────────────────────
+  uniscraper-api:
+    build:
+      context: ./uniscraper
+      dockerfile: Dockerfile
+    container_name: studentapp-uniscraper
+    restart: unless-stopped
+    environment:
+      - PORT=8001
+      - CACHE_TTL_MINUTES=${SCRAPER_CACHE_TTL:-60}
+    networks:
+      - app-internal
+      - agent-external
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # ────────────────────────────────────────────────────────
+  # Frontend (React + Vite) — dev / nginx prod
+  # ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: studentapp-frontend
+    restart: unless-stopped
+    depends_on:
+      backend-api:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    networks:
+      - app-external
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+
+networks:
+  app-internal:
+    driver: bridge
+    name: studentapp-internal
+    internal: true
+  app-external:
+    driver: bridge
+    name: studentapp-external
+  agent-external:
+    driver: bridge
+    name: studentapp-agent-external
+
+volumes:
+  postgres-data:
+    name: studentapp-postgres-data
+  openclaw-workspace:
+    name: studentapp-openclaw-workspace

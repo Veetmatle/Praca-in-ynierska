@@ -1,0 +1,101 @@
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
+import { getAccessToken } from '../services/api';
+
+/**
+ * Custom hook for SignalR chat streaming.
+ * Manages connection lifecycle, message streaming, and reconnection.
+ */
+export function useChat() {
+  const [isConnected, setIsConnected] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const connectionRef = useRef(null);
+  const onChunkRef = useRef(null);
+  const onEndRef = useRef(null);
+  const onMessageSavedRef = useRef(null);
+  const onTitleUpdatedRef = useRef(null);
+  const onErrorRef = useRef(null);
+
+  const connect = useCallback(async () => {
+    if (connectionRef.current) return;
+
+    const connection = new HubConnectionBuilder()
+      .withUrl('/hubs/chat', { accessTokenFactory: () => getAccessToken() })
+      .withAutomaticReconnect([0, 2000, 5000, 10000])
+      .configureLogging(LogLevel.Warning)
+      .build();
+
+    connection.on('StreamChunk', (chunk) => {
+      onChunkRef.current?.(chunk);
+    });
+
+    connection.on('StreamEnd', (error) => {
+      setIsStreaming(false);
+      onEndRef.current?.(error);
+    });
+
+    connection.on('MessageSaved', (msg) => {
+      onMessageSavedRef.current?.(msg);
+    });
+
+    connection.on('SessionTitleUpdated', (data) => {
+      onTitleUpdatedRef.current?.(data);
+    });
+
+    connection.on('Error', (msg) => {
+      setIsStreaming(false);
+      onErrorRef.current?.(msg);
+    });
+
+    connection.onreconnecting(() => setIsConnected(false));
+    connection.onreconnected(() => setIsConnected(true));
+    connection.onclose(() => {
+      setIsConnected(false);
+      connectionRef.current = null;
+    });
+
+    try {
+      await connection.start();
+      connectionRef.current = connection;
+      setIsConnected(true);
+    } catch (err) {
+      console.error('SignalR connection failed:', err);
+    }
+  }, []);
+
+  const disconnect = useCallback(async () => {
+    if (connectionRef.current) {
+      await connectionRef.current.stop();
+      connectionRef.current = null;
+      setIsConnected(false);
+    }
+  }, []);
+
+  const sendMessage = useCallback(async (sessionPublicId, content) => {
+    if (!connectionRef.current) return;
+    setIsStreaming(true);
+    try {
+      await connectionRef.current.invoke('SendMessage', sessionPublicId, content);
+    } catch (err) {
+      setIsStreaming(false);
+      onErrorRef.current?.(err.message);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => { disconnect(); };
+  }, [disconnect]);
+
+  return {
+    isConnected,
+    isStreaming,
+    connect,
+    disconnect,
+    sendMessage,
+    onChunk: (fn) => { onChunkRef.current = fn; },
+    onEnd: (fn) => { onEndRef.current = fn; },
+    onMessageSaved: (fn) => { onMessageSavedRef.current = fn; },
+    onTitleUpdated: (fn) => { onTitleUpdatedRef.current = fn; },
+    onError: (fn) => { onErrorRef.current = fn; },
+  };
+}

@@ -1,0 +1,42 @@
+# ── IDE ───────────────────────────────
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# ── .NET ──────────────────────────────
+bin/
+obj/
+*.dll
+*.exe
+appsettings.Development.json
+appsettings.Local.json
+*.nupkg
+
+# ── Node ──────────────────────────────
+node_modules/
+dist/
+.vite/
+*.local
+
+# ── Python ────────────────────────────
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# ── Środowisko / Sekrety ──────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── OS ────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Logs ──────────────────────────────
+logs/
+*.log

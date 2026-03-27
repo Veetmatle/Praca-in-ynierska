@@ -5,6 +5,7 @@ Adapted from the original anthropic_client.py — now accepts API key per-reques
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from pathlib import Path
@@ -14,6 +15,8 @@ import anthropic
 
 if TYPE_CHECKING:
     from core.engine import AgentTask
+
+UNISCRAPER_MCP_URL = os.environ.get("UNISCRAPER_MCP_URL", "")
 
 CLAUDE_RETRY_MAX_ATTEMPTS = 5
 CLAUDE_RETRY_BASE_DELAY_S = 2.0
@@ -85,7 +88,76 @@ TOOLS_BASE = [
             "required": ["files"],
         },
     },
+    {
+        "name": "query_university",
+        "description": (
+            "Pobiera informacje ze strony uczelni (Politechnika Krakowska): plany zajęć, "
+            "dokumenty, zarządzenia, aktualności. Używaj gdy student pyta o harmonogramy, "
+            "linki uczelniane lub ogłoszenia."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tool": {
+                    "type": "string",
+                    "enum": ["get_university_links", "get_schedule_info", "get_university_news"],
+                    "description": (
+                        "Narzędzie MCP do wywołania: "
+                        "get_university_links — ogólne wyszukiwanie dokumentów i linków; "
+                        "get_schedule_info — plany zajęć z filtrem roku akademickiego; "
+                        "get_university_news — aktualne ogłoszenia."
+                    ),
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Zapytanie lub słowa kluczowe.",
+                },
+                "faculty": {
+                    "type": "string",
+                    "description": "Wydział, np. 'WIiT' (opcjonalnie).",
+                },
+                "field_of_study": {
+                    "type": "string",
+                    "description": "Kierunek studiów, np. 'Informatyka' (opcjonalnie).",
+                },
+                "academic_year": {
+                    "type": "string",
+                    "description": "Rok akademicki, np. '2024/2025' (opcjonalnie).",
+                },
+                "study_year": {
+                    "type": "integer",
+                    "description": "Rok studiów, np. 2 (opcjonalnie).",
+                },
+                "dean_group": {
+                    "type": "string",
+                    "description": "Grupa dziekańska, np. 'ID3' (opcjonalnie).",
+                },
+            },
+            "required": ["tool", "query"],
+        },
+    },
 ]
+
+
+def _call_uniscraper_mcp(tool_name: str, arguments: dict[str, Any]) -> str:
+    """Call a tool on the UniScraper MCP server via SSE client. Runs in a fresh event loop."""
+    from mcp.client.sse import sse_client
+    from mcp.client.session import ClientSession
+
+    async def _invoke() -> str:
+        async with sse_client(UNISCRAPER_MCP_URL) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                result = await session.call_tool(tool_name, arguments)
+                if result.content:
+                    item = result.content[0]
+                    return item.text if hasattr(item, "text") else str(item)
+                return "Brak wyników."
+
+    try:
+        return asyncio.run(_invoke())
+    except Exception as e:
+        return f"Błąd połączenia z UniScraper MCP ({UNISCRAPER_MCP_URL}): {e}"
 
 
 def _get_client(api_key: Optional[str] = None) -> anthropic.Anthropic:
@@ -237,6 +309,14 @@ def _execute_tool(
                     print(f"[tool] mark_output: SKIP (not found): {f}", flush=True)
             marked_outputs.extend(resolved)
             return f"Marked {len(resolved)} file(s) as output"
+
+        elif name == "query_university":
+            if not UNISCRAPER_MCP_URL:
+                return "ERROR: UNISCRAPER_MCP_URL not configured — UniScraper MCP unavailable."
+            mcp_tool = inputs["tool"]
+            mcp_args = {k: v for k, v in inputs.items() if k != "tool" and v is not None}
+            print(f"[tool] query_university → MCP:{mcp_tool} args={list(mcp_args.keys())}", flush=True)
+            return _call_uniscraper_mcp(mcp_tool, mcp_args)
 
         else:
             return f"ERROR: unknown tool: {name}"

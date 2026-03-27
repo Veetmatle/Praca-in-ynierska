@@ -89,6 +89,9 @@ services:
       dockerfile: Dockerfile
     container_name: studentapp-openclaw
     restart: unless-stopped
+    depends_on:
+      uniscraper-api:
+        condition: service_started
     environment:
       - PORT=8000
       - MAX_TOOL_ROUNDS=${MAX_TOOL_ROUNDS:-20}
@@ -96,6 +99,7 @@ services:
       - AGENT_SESSION_TIMEOUT_MINUTES=${AGENT_SESSION_TIMEOUT_MINUTES:-10}
       - MAX_CONCURRENT_TASKS=${MAX_CONCURRENT_TASKS:-2}
       - WORKSPACE_DIR=/workspace
+      - UNISCRAPER_MCP_URL=http://uniscraper-api:8001/sse
     volumes:
       - openclaw-workspace:/workspace
     networks:

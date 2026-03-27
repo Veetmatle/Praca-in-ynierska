@@ -41,16 +41,42 @@ public sealed class GeminiService : IGeminiService
     {
         var client = _httpClientFactory.CreateClient("GeminiApi");
 
-        // Build sliding window context from recent messages
-        var contextMessages = history
+        var slidingWindow = history
             .OrderByDescending(m => m.CreatedAt)
             .Take(SlidingWindowSize)
             .Reverse()
-            .Select(m => new
+            .ToList();
+
+        // Extract system messages → systemInstruction (Gemini API top-level field)
+        var systemParts = slidingWindow
+            .Where(m => m.Role == MessageRole.System)
+            .Select(m => new { text = m.Content })
+            .ToList();
+
+        // Build contents — skip System messages, map User/Assistant explicitly
+        var mappedMessages = new List<(string Role, string Content)>();
+        foreach (var m in slidingWindow.Where(m => m.Role != MessageRole.System))
+        {
+            if (m.Role == MessageRole.User)
+                mappedMessages.Add(("user", m.Content));
+            else if (m.Role == MessageRole.Assistant)
+                mappedMessages.Add(("model", m.Content));
+            else
             {
-                role = m.Role == MessageRole.User ? "user" : "model",
-                parts = new[] { new { text = m.Content } }
-            })
+                Log.Warning("GeminiService: unknown MessageRole {Role} on message {Id} — skipping", m.Role, m.Id);
+            }
+        }
+
+        // Gemini requires contents to start with a "user" turn
+        while (mappedMessages.Count > 0 && mappedMessages[0].Role == "model")
+        {
+            Log.Warning("GeminiService: dropping leading 'model' message to satisfy Gemini alternation requirement");
+            mappedMessages.RemoveAt(0);
+        }
+
+        var contextMessages = mappedMessages
+            .Select(m => new { role = m.Role, parts = new[] { new { text = m.Content } } })
+            .Cast<object>()
             .ToList();
 
         // Add new prompt
@@ -60,15 +86,24 @@ public sealed class GeminiService : IGeminiService
             parts = new[] { new { text = prompt + DefaultPromptSuffix } }
         });
 
-        var requestBody = new
+        object requestBody;
+        if (systemParts.Count > 0)
         {
-            contents = contextMessages,
-            generationConfig = new
+            requestBody = new
             {
-                maxOutputTokens = 2048,
-                temperature = 0.7
-            }
-        };
+                systemInstruction = new { parts = systemParts },
+                contents = contextMessages,
+                generationConfig = new { maxOutputTokens = 2048, temperature = 0.7 }
+            };
+        }
+        else
+        {
+            requestBody = new
+            {
+                contents = contextMessages,
+                generationConfig = new { maxOutputTokens = 2048, temperature = 0.7 }
+            };
+        }
 
         var url = $"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?alt=sse&key={apiKey}";
 
@@ -91,33 +126,61 @@ public sealed class GeminiService : IGeminiService
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
-        while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+        const int maxConsecutiveErrors = 5;
+        int consecutiveErrors = 0;
+
+        try
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
-            if (string.IsNullOrEmpty(line) || !line.StartsWith("data: "))
-                continue;
-
-            var json = line[6..];
-            if (json == "[DONE]") break;
-
-            string? text = null;
-            try
+            while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
             {
-                using var doc = JsonDocument.Parse(json);
-                text = doc.RootElement
-                    .GetProperty("candidates")[0]
-                    .GetProperty("content")
-                    .GetProperty("parts")[0]
-                    .GetProperty("text")
-                    .GetString();
-            }
-            catch
-            {
-                // Skip malformed chunks
-            }
+                var line = await reader.ReadLineAsync(cancellationToken);
+                if (string.IsNullOrEmpty(line) || !line.StartsWith("data: "))
+                    continue;
 
-            if (!string.IsNullOrEmpty(text))
-                yield return text;
+                var json = line[6..];
+                if (json == "[DONE]") break;
+
+                string? text = null;
+                try
+                {
+                    using var doc = JsonDocument.Parse(json);
+                    text = doc.RootElement
+                        .GetProperty("candidates")[0]
+                        .GetProperty("content")
+                        .GetProperty("parts")[0]
+                        .GetProperty("text")
+                        .GetString();
+
+                    consecutiveErrors = 0;
+                }
+                catch (Exception ex)
+                {
+                    consecutiveErrors++;
+                    Log.Debug("Gemini stream: malformed chunk skipped. Error: {Error}, Raw: {Line}", ex.Message, json);
+
+                    if (consecutiveErrors >= maxConsecutiveErrors)
+                    {
+                        Log.Warning("Gemini stream: {Count} consecutive unparseable chunks — possible format change or broken connection. Aborting stream.", consecutiveErrors);
+                        yield return "[Strumień odpowiedzi przerwany — problem z API Gemini]";
+                        yield break;
+                    }
+
+                    continue;
+                }
+
+                if (!string.IsNullOrEmpty(text))
+                    yield return text;
+            }
+        }
+        catch (IOException ex)
+        {
+            Log.Error(ex, "Gemini stream: connection lost while reading response stream");
+            yield return "[Strumień odpowiedzi przerwany — utracono połączenie z API Gemini]";
+        }
+        catch (HttpRequestException ex)
+        {
+            Log.Error(ex, "Gemini stream: HTTP error while reading response stream");
+            yield return "[Strumień odpowiedzi przerwany — problem z API Gemini]";
         }
     }
 }

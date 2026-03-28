@@ -65,7 +65,9 @@ public sealed class OpenClawService : IOpenClawService
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/chat");
         request.Content = JsonContent.Create(payload);
 
+        // ── Send request ──
         HttpResponseMessage response;
+        string? sendError = null;
         try
         {
             response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -74,21 +76,44 @@ public sealed class OpenClawService : IOpenClawService
         catch (HttpRequestException ex)
         {
             Log.Error(ex, "OpenClaw API request failed");
-            yield return $"[Błąd OpenClaw: {ex.StatusCode}]";
+            sendError = $"[Błąd OpenClaw: {ex.StatusCode}]";
+            response = null!;
+        }
+
+        if (sendError is not null)
+        {
+            yield return sendError;
             yield break;
         }
 
+        // ── Stream response ──
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
         int consecutiveErrors = 0;
         const int maxConsecutiveErrors = 5;
+        string? streamError = null;
 
-        try
-        {
         while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
+            string? line;
+            try
+            {
+                line = await reader.ReadLineAsync(cancellationToken);
+            }
+            catch (IOException ex)
+            {
+                Log.Warning("OpenClaw stream: connection lost: {Error}", ex.Message);
+                streamError = "[Połączenie z OpenClaw zostało przerwane]";
+                break;
+            }
+            catch (HttpRequestException ex)
+            {
+                Log.Warning("OpenClaw stream: HTTP error: {Error}", ex.Message);
+                streamError = "[Błąd HTTP w strumieniu OpenClaw]";
+                break;
+            }
+
             if (string.IsNullOrEmpty(line)) continue;
 
             if (line.StartsWith("data: "))
@@ -104,41 +129,30 @@ public sealed class OpenClawService : IOpenClawService
                         text = textEl.GetString();
                     else if (doc.RootElement.TryGetProperty("content", out var contentEl))
                         text = contentEl.GetString();
+
+                    consecutiveErrors = 0;
                 }
                 catch (Exception ex)
                 {
                     consecutiveErrors++;
-                    Log.Debug("OpenClaw stream: malformed chunk skipped. Error: {Error}, Raw: {Data}",
-                        ex.Message, data);
+                    Log.Debug("OpenClaw stream: malformed chunk. Error: {Error}, Raw: {Data}", ex.Message, data);
 
                     if (consecutiveErrors >= maxConsecutiveErrors)
                     {
-                        Log.Warning("OpenClaw stream: {Count} consecutive parse errors, aborting",
-                            consecutiveErrors);
-                        yield return "\n\n[Strumień przerwany — problem z odpowiedzią OpenClaw]";
-                        yield break;
+                        Log.Warning("OpenClaw stream: {Count} consecutive parse errors, aborting", consecutiveErrors);
+                        streamError = "[Strumień przerwany — problem z odpowiedzią OpenClaw]";
+                        break;
                     }
                     continue;
                 }
 
                 if (!string.IsNullOrEmpty(text))
-                {
-                    consecutiveErrors = 0;
                     yield return text;
-                }
             }
         }
-        }
-        catch (IOException ex)
-        {
-            Log.Warning("OpenClaw stream: connection lost: {Error}", ex.Message);
-            yield return "\n\n[Połączenie z OpenClaw zostało przerwane]";
-        }
-        catch (HttpRequestException ex)
-        {
-            Log.Warning("OpenClaw stream: HTTP error during streaming: {Error}", ex.Message);
-            yield return "\n\n[Błąd HTTP w strumieniu OpenClaw]";
-        }
+
+        if (streamError is not null)
+            yield return streamError;
     }
 
     private async Task ThrottleAsync(CancellationToken ct)

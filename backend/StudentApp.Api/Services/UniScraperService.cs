@@ -44,8 +44,9 @@ public sealed class UniScraperService : IUniScraperService
         List<ChatMessage> history,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        // Step 1: Fetch context from UniScraper with user's university parameters
-        string scrapedContext;
+        // Step 1: Fetch context from UniScraper
+        string? scrapedContext = null;
+        string? fetchError = null;
         try
         {
             scrapedContext = await FetchScrapedContextAsync(query, userConfig, cancellationToken);
@@ -53,7 +54,12 @@ public sealed class UniScraperService : IUniScraperService
         catch (Exception ex)
         {
             Log.Error(ex, "UniScraper fetch failed");
-            yield return "[Nie udało się pobrać danych z uczelni. Spróbuj ponownie później.]";
+            fetchError = "[Nie udało się pobrać danych z uczelni. Spróbuj ponownie później.]";
+        }
+
+        if (fetchError is not null)
+        {
+            yield return fetchError;
             yield break;
         }
 

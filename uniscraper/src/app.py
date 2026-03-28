@@ -190,10 +190,77 @@ async def health_endpoint(request: Request) -> JSONResponse:
     })
 
 
-# ── Starlette app combining /health + MCP SSE ─────────────
+# ── REST endpoints (for C# backend fast-path RAG) ─────────
+async def handle_scrape(request: Request) -> JSONResponse:
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+    university = body.get("university", "Politechnika Krakowska")
+    scraper = registry.get(university)
+    if scraper is None:
+        return JSONResponse(
+            {"error": f"University '{university}' not supported. Available: {registry.list_universities()}"},
+            status_code=404,
+        )
+
+    query = body.get("query", "")
+    if not query:
+        return JSONResponse({"error": "Field 'query' is required"}, status_code=400)
+
+    try:
+        result = await scraper.scrape(
+            query=query,
+            faculty=body.get("faculty"),
+            field_of_study=body.get("field_of_study"),
+            academic_year=body.get("academic_year"),
+            study_year=body.get("study_year"),
+            dean_group=body.get("dean_group"),
+        )
+    except Exception as e:
+        return JSONResponse({"error": f"Scraping failed: {str(e)[:300]}"}, status_code=500)
+
+    return JSONResponse({
+        "context": result.get("context", ""),
+        "sources": result.get("sources", []),
+        "university": university,
+        "cached": result.get("cached", False),
+    })
+
+
+async def handle_links(request: Request) -> JSONResponse:
+    university = request.path_params.get("university", "Politechnika Krakowska")
+    scraper = registry.get(university)
+    if scraper is None:
+        return JSONResponse(
+            {"error": f"University '{university}' not supported. Available: {registry.list_universities()}"},
+            status_code=404,
+        )
+
+    query = request.query_params.get("query", "")
+    try:
+        result = await scraper.scrape(
+            query=query or "linki dokumenty",
+            faculty=request.query_params.get("faculty"),
+            field_of_study=request.query_params.get("field_of_study"),
+        )
+    except Exception as e:
+        return JSONResponse({"error": f"Scraping failed: {str(e)[:300]}"}, status_code=500)
+
+    return JSONResponse({
+        "sources": result.get("sources", []),
+        "university": university,
+        "cached": result.get("cached", False),
+    })
+
+
+# ── Starlette app combining /health + REST + MCP SSE ──────
 app = Starlette(
     routes=[
         Route("/health", health_endpoint),
+        Route("/api/scrape", handle_scrape, methods=["POST"]),
+        Route("/api/links/{university}", handle_links),
         Route("/sse", handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
     ]

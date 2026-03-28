@@ -40,7 +40,9 @@ public static class DbInitializer
             db.UserConfigurations.Add(new UserConfiguration { UserId = admin.Id });
             await db.SaveChangesAsync();
 
-            Log.Warning("Default admin account created. Username: admin | Password: {Password}. CHANGE IT IMMEDIATELY!", defaultPassword);
+            Log.Warning(
+                "Default admin account created. Username: admin. " +
+                "Password was set from Admin:DefaultPassword config. CHANGE IT IMMEDIATELY AFTER FIRST LOGIN!");
         }
     }
 }

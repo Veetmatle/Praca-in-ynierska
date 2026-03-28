@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import * as api from '../services/api';
 
 const AuthContext = createContext(null);
@@ -26,9 +26,24 @@ export function AuthProvider({ children }) {
       }
     }).finally(() => setLoading(false));
 
-    // Periodic token refresh (every 12 minutes for 15-min tokens)
+  }, []);
+
+  // Periodic token refresh — separate useEffect to avoid stale closure
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
-      if (user) api.refreshToken();
+      if (userRef.current) {
+        api.refreshToken().then((data) => {
+          if (!data && userRef.current) {
+            // Refresh failed — token expired, force logout
+            setUser(null);
+          }
+        });
+      }
     }, 12 * 60 * 1000);
 
     return () => clearInterval(interval);

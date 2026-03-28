@@ -12,7 +12,6 @@ public record UserDto(
 );
 
 public record UserConfigurationDto(
-    Guid PublicId,
     bool HasGeminiKey,
     bool HasAnthropicKey,
     string? UniversityName,
@@ -59,7 +58,6 @@ public static class DtoMappers
     );
 
     public static UserConfigurationDto ToDto(this UserConfiguration cfg) => new(
-        cfg.PublicId,
         !string.IsNullOrEmpty(cfg.GeminiApiKeyEncrypted),
         !string.IsNullOrEmpty(cfg.AnthropicApiKeyEncrypted),
         cfg.UniversityName, cfg.Faculty, cfg.FieldOfStudy,

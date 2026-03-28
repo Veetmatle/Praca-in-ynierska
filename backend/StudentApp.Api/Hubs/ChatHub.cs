@@ -17,6 +17,11 @@ namespace StudentApp.Api.Hubs;
 [Authorize]
 public class ChatHub : Hub
 {
+    // Per-connection message throttle — max 1 message per 2 seconds
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>
+        _lastMessageTime = new();
+    private static readonly TimeSpan _minMessageInterval = TimeSpan.FromSeconds(2);
+
     private readonly IChatService _chatService;
     private readonly IConfigurationService _configService;
     private readonly IGeminiService _geminiService;
@@ -45,6 +50,18 @@ public class ChatHub : Hub
     /// </summary>
     public async Task SendMessage(string sessionPublicId, string content)
     {
+        // Throttle: reject rapid-fire messages
+        var connectionId = Context.ConnectionId;
+        var now = DateTime.UtcNow;
+        if (_lastMessageTime.TryGetValue(connectionId, out var lastTime)
+            && (now - lastTime) < _minMessageInterval)
+        {
+            await Clients.Caller.SendAsync("Error",
+                "Zbyt wiele wiadomości. Poczekaj chwilę przed wysłaniem kolejnej.");
+            return;
+        }
+        _lastMessageTime[connectionId] = now;
+
         var userId = GetUserId();
         if (userId is null) return;
 
@@ -146,6 +163,12 @@ public class ChatHub : Hub
         if (cfg is null)
             throw new InvalidOperationException("Konfiguracja uczelni nie jest ustawiona. Przejdź do Ustawień.");
         return _uniScraperService.StreamQueryAsync(apiKey, cfg.GeminiModel, prompt, cfg, history);
+    }
+
+    public override Task OnDisconnectedAsync(Exception? exception)
+    {
+        _lastMessageTime.TryRemove(Context.ConnectionId, out _);
+        return base.OnDisconnectedAsync(exception);
     }
 
     private int? GetUserId()

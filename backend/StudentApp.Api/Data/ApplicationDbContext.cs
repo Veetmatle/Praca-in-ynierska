@@ -37,7 +37,6 @@ public class ApplicationDbContext : DbContext
         // ── UserConfiguration ────────────────────────────
         modelBuilder.Entity<UserConfiguration>(entity =>
         {
-            entity.HasIndex(uc => uc.PublicId).IsUnique();
             entity.HasIndex(uc => uc.UserId).IsUnique();
             
             entity.HasOne(uc => uc.User)

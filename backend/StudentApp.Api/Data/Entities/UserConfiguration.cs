@@ -7,8 +7,6 @@ namespace StudentApp.Api.Data.Entities;
 public class UserConfiguration
 {
     public int Id { get; set; }
-    public Guid PublicId { get; set; } = Guid.NewGuid();
-    
     public int UserId { get; set; }
     public User User { get; set; } = null!;
     

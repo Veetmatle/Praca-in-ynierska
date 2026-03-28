@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using StudentApp.Api.Models.Requests;
 using StudentApp.Api.Services;
 
@@ -9,6 +10,7 @@ namespace StudentApp.Api.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[EnableRateLimiting("chat")]
 public class ConfigurationController : ControllerBase
 {
     private readonly IConfigurationService _configService;

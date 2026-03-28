@@ -118,7 +118,40 @@ export default function SettingsPanel({ onClose }) {
           <h3>Uczelnia</h3>
           <div className="form-group">
             <label>Nazwa uczelni</label>
-            <input value={form.universityName || ''} onChange={(e) => updateForm('universityName', e.target.value)} placeholder="np. Politechnika Krakowska" />
+            <input
+              list="university-list"
+              value={form.universityName || ''}
+              onChange={(e) => updateForm('universityName', e.target.value)}
+              placeholder="Zacznij pisać nazwę uczelni..."
+            />
+            <datalist id="university-list">
+              <option value="Politechnika Krakowska" />
+              <option value="Akademia Górniczo-Hutnicza (AGH)" />
+              <option value="Uniwersytet Jagielloński" />
+              <option value="Politechnika Warszawska" />
+              <option value="Politechnika Wrocławska" />
+              <option value="Politechnika Gdańska" />
+              <option value="Politechnika Śląska" />
+              <option value="Politechnika Łódzka" />
+              <option value="Politechnika Poznańska" />
+              <option value="Politechnika Rzeszowska" />
+              <option value="Uniwersytet Warszawski" />
+              <option value="Uniwersytet Wrocławski" />
+              <option value="Uniwersytet im. Adama Mickiewicza (UAM)" />
+              <option value="Uniwersytet Gdański" />
+              <option value="Uniwersytet Śląski" />
+              <option value="Uniwersytet Łódzki" />
+              <option value="Uniwersytet Mikołaja Kopernika (UMK)" />
+              <option value="Uniwersytet Marii Curie-Skłodowskiej (UMCS)" />
+              <option value="Uniwersytet Ekonomiczny w Krakowie" />
+              <option value="Uniwersytet Ekonomiczny we Wrocławiu" />
+              <option value="Uniwersytet Ekonomiczny w Poznaniu" />
+              <option value="Uniwersytet Ekonomiczny w Katowicach" />
+              <option value="Szkoła Główna Handlowa (SGH)" />
+              <option value="Wojskowa Akademia Techniczna (WAT)" />
+              <option value="Uniwersytet Technologiczno-Przyrodniczy w Bydgoszczy" />
+            </datalist>
+            <p className="hint">Wpisz nazwę lub wybierz z listy. Możesz wpisać dowolną.</p>
           </div>
           <div className="form-group">
             <label>Wydział</label>
@@ -149,15 +182,34 @@ export default function SettingsPanel({ onClose }) {
           <div className="form-group">
             <label>Model Gemini</label>
             <select value={form.geminiModel || ''} onChange={(e) => updateForm('geminiModel', e.target.value)}>
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+              <optgroup label="Gemini 2.5">
+                <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+              </optgroup>
+              <optgroup label="Gemini 2.0">
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                <option value="gemini-2.0-flash-lite">Gemini 2.0 Flash Lite</option>
+              </optgroup>
+              <optgroup label="Gemini 1.5">
+                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                <option value="gemini-1.5-pro">Gemini 1.5 Pro</option>
+              </optgroup>
             </select>
           </div>
           <div className="form-group">
             <label>Model Anthropic</label>
             <select value={form.anthropicModel || ''} onChange={(e) => updateForm('anthropicModel', e.target.value)}>
-              <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-              <option value="claude-opus-4-20250514">Claude Opus 4</option>
+              <optgroup label="Claude 4">
+                <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                <option value="claude-opus-4-20250514">Claude Opus 4</option>
+              </optgroup>
+              <optgroup label="Claude 3.7">
+                <option value="claude-3-7-sonnet-20250219">Claude 3.7 Sonnet</option>
+              </optgroup>
+              <optgroup label="Claude 3.5">
+                <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (v2)</option>
+                <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>
+              </optgroup>
             </select>
           </div>
         </div>

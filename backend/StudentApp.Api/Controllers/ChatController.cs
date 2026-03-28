@@ -58,6 +58,15 @@ public class ChatController : ControllerBase
         return success ? NoContent() : NotFound();
     }
 
+    [HttpPost("sessions/{publicId:guid}/pin")]
+    public async Task<IActionResult> TogglePin(Guid publicId)
+    {
+        var userId = GetUserId();
+        var session = await _chatService.TogglePinAsync(publicId, userId);
+        if (session is null) return NotFound();
+        return Ok(session);
+    }
+
     private int GetUserId()
     {
         var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;

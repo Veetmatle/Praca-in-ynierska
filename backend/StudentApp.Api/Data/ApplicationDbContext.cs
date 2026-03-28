@@ -57,7 +57,7 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<ChatSession>(entity =>
         {
             entity.HasIndex(cs => cs.PublicId).IsUnique();
-            entity.HasIndex(cs => new { cs.UserId, cs.UpdatedAt });
+            entity.HasIndex(cs => new { cs.UserId, cs.IsPinned, cs.UpdatedAt });
             entity.Property(cs => cs.Title).HasMaxLength(300);
             
             entity.HasQueryFilter(cs => !cs.IsDeleted);

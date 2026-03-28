@@ -30,7 +30,9 @@ public record ChatSessionDto(
     string Category,
     DateTime CreatedAt,
     DateTime UpdatedAt,
-    int MessageCount
+    bool IsPinned,
+    int MessageCount,
+    string? LastMessage
 );
 
 public record ChatMessageDto(
@@ -67,7 +69,8 @@ public static class DtoMappers
 
     public static ChatSessionDto ToDto(this ChatSession session) => new(
         session.PublicId, session.Title, session.Category.ToString(),
-        session.CreatedAt, session.UpdatedAt, session.Messages.Count
+        session.CreatedAt, session.UpdatedAt, session.IsPinned, session.Messages.Count,
+        session.Messages.OrderByDescending(m => m.CreatedAt).FirstOrDefault()?.Content
     );
 
     public static ChatMessageDto ToDto(this ChatMessage msg) => new(

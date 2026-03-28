@@ -15,6 +15,7 @@ public class ChatSession
     public string Title { get; set; } = "Nowa rozmowa";
     public ChatCategory Category { get; set; }
     
+    public bool IsPinned { get; set; }
     public bool IsDeleted { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

@@ -152,3 +152,8 @@ export async function deleteUser(publicId) {
 export async function restoreUser(publicId) {
   return request(`/admin/users/${publicId}/restore`, { method: 'POST' });
 }
+
+export async function togglePin(publicId) {
+  const res = await request(`/chat/sessions/${publicId}/pin`, { method: 'POST' });
+  return res.json();
+}

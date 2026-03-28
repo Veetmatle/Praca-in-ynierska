@@ -18,6 +18,7 @@ public interface IChatService
     Task<List<ChatMessage>> GetRecentMessagesAsync(int sessionId, int count = 20);
     Task<ChatMessage> AddMessageAsync(int sessionId, MessageRole role, string content, int? tokenCount = null);
     Task UpdateSessionTitleAsync(int sessionId, string title);
+    Task<ChatSessionDto?> TogglePinAsync(Guid sessionPublicId, int userId);
 }
 
 public sealed class ChatService : IChatService
@@ -36,7 +37,8 @@ public sealed class ChatService : IChatService
             query = query.Where(cs => cs.Category == category.Value);
 
         return await query
-            .OrderByDescending(cs => cs.UpdatedAt)
+            .OrderByDescending(cs => cs.IsPinned)
+            .ThenByDescending(cs => cs.UpdatedAt)
             .Select(cs => cs.ToDto())
             .ToListAsync();
     }
@@ -126,5 +128,17 @@ public sealed class ChatService : IChatService
             session.Title = title;
             await _db.SaveChangesAsync();
         }
+    }
+
+    public async Task<ChatSessionDto?> TogglePinAsync(Guid sessionPublicId, int userId)
+    {
+        var session = await _db.ChatSessions
+            .Include(cs => cs.Messages)
+            .FirstOrDefaultAsync(cs => cs.PublicId == sessionPublicId && cs.UserId == userId);
+        if (session is null) return null;
+
+        session.IsPinned = !session.IsPinned;
+        await _db.SaveChangesAsync();
+        return session.ToDto();
     }
 }

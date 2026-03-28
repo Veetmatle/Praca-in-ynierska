@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings, Plus, LogOut, Shield, MessageSquare, Bot, GraduationCap } from 'lucide-react';
+import { Settings, Plus, LogOut, Shield, MessageSquare, Bot, GraduationCap, Pin } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import * as api from '../../services/api';
 
@@ -18,6 +18,7 @@ export default function Sidebar({
   onOpenSettings,
   onOpenAdmin,
   onRefreshSessions,
+  onTogglePin,
 }) {
   const { user, logout } = useAuth();
   const [filter, setFilter] = useState(null);
@@ -86,13 +87,26 @@ export default function Sidebar({
             key={session.publicId}
             className={`session-item ${activeSessionId === session.publicId ? 'active' : ''}`}
             onClick={() => onSelectSession(session.publicId)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              if (onTogglePin) onTogglePin(session.publicId);
+            }}
+            title="Prawy klik = przypnij/odepnij"
           >
             <div className="title">
+              {session.isPinned && <Pin size={12} style={{ marginRight: 4, color: 'var(--accent)' }} />}
               {getCategoryIcon(session.category)} {session.title}
             </div>
             <div className="meta">
-              {session.category} · {formatDate(session.updatedAt)} · {session.messageCount} wiad.
+              {formatDate(session.updatedAt)}
             </div>
+            {session.lastMessage && (
+              <div className="last-message">
+                {session.lastMessage.length > 55
+                  ? session.lastMessage.substring(0, 55) + '...'
+                  : session.lastMessage}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -102,18 +116,19 @@ export default function Sidebar({
           <div className="user-name">{user?.displayName}</div>
           <div className="user-role">{user?.role === 'Admin' ? 'Administrator' : 'Student'}</div>
         </div>
-
-        {user?.role === 'Admin' && (
-          <button className="icon-btn" onClick={onOpenAdmin} title="Panel admina">
-            <Shield size={18} />
+        <div className="footer-actions">
+          {user?.role === 'Admin' && (
+            <button className="icon-btn" onClick={onOpenAdmin} title="Panel admina">
+              <Shield size={18} />
+            </button>
+          )}
+          <button className="icon-btn" onClick={onOpenSettings} title="Ustawienia">
+            <Settings size={18} />
           </button>
-        )}
-        <button className="icon-btn" onClick={onOpenSettings} title="Ustawienia">
-          <Settings size={18} />
-        </button>
-        <button className="icon-btn" onClick={logout} title="Wyloguj">
-          <LogOut size={18} />
-        </button>
+          <button className="icon-btn" onClick={logout} title="Wyloguj">
+            <LogOut size={18} />
+          </button>
+        </div>
       </div>
     </div>
   );

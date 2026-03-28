@@ -54,8 +54,13 @@ export default function App() {
 
     chat.onMessageSaved((msg) => {
       setMessages((prev) => {
-        const exists = prev.some((m) => m.id === msg.id);
-        if (exists) return prev;
+        if (msg.role === 'User') {
+          // Replace optimistic temp message with real one from DB
+          const withoutTemp = prev.filter((m) => !m._temp);
+          return [...withoutTemp, msg];
+        }
+        // Assistant: add only if not duplicate
+        if (prev.some((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
       setStreamingText('');
@@ -103,11 +108,20 @@ export default function App() {
     if (!activeSessionId) return;
 
     // Optimistic UI: show user message immediately
-    const tempMsg = { id: Date.now(), role: 'User', content };
+    const tempMsg = { id: Date.now(), role: 'User', content, _temp: true };
     setMessages((prev) => [...prev, tempMsg]);
     setStreamingText('');
 
     chat.sendMessage(activeSessionId, content);
+  };
+
+  const handleTogglePin = async (publicId) => {
+    try {
+      await api.togglePin(publicId);
+      await loadSessions();
+    } catch (err) {
+      console.error('Failed to toggle pin:', err);
+    }
   };
 
   if (loading) {
@@ -132,6 +146,7 @@ export default function App() {
         onOpenSettings={() => setShowSettings(true)}
         onOpenAdmin={() => setShowAdmin(true)}
         onRefreshSessions={loadSessions}
+        onTogglePin={handleTogglePin}
       />
 
       <ChatWindow

@@ -153,7 +153,12 @@ a {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.15s;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.session-item:last-child {
+  border-bottom: none;
 }
 
 .session-item:hover {
@@ -162,6 +167,8 @@ a {
 
 .session-item.active {
   background: var(--bg-active);
+  border-left: 3px solid var(--accent);
+  padding-left: 9px;
 }
 
 .session-item .title {
@@ -179,12 +186,29 @@ a {
   margin-top: 2px;
 }
 
+.session-item .last-message {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.7;
+}
+
 .sidebar-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--border);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.sidebar-footer .footer-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .sidebar-footer .user-info {
@@ -332,8 +356,10 @@ a {
 /* ── Chat Input ───────────────────────────────────────── */
 
 .chat-input-area {
-  padding: 12px 20px 16px;
+  padding: 10px 40px 14px;
   border-top: 1px solid var(--border-light);
+  display: flex;
+  justify-content: center;
 }
 
 .chat-input-wrapper {
@@ -345,6 +371,8 @@ a {
   border-radius: var(--radius-lg);
   padding: 8px 12px;
   transition: border-color 0.2s;
+  max-width: 740px;
+  width: 100%;
 }
 
 .chat-input-wrapper:focus-within {

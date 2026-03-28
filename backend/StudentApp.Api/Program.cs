@@ -28,7 +28,8 @@ builder.Services.AddControllers();
 builder.Services.AddSignalR(options =>
 {
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
-    options.MaximumReceiveMessageSize = 64 * 1024; // 64 KB
+    options.MaximumReceiveMessageSize = 50 * 1024 * 1024; // 50 MB — potrzebne dla base64 załączników
+    options.StreamBufferCapacity = 20;
 });
 
 // ── JWT Authentication ───────────────────────────────────

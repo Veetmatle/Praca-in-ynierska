@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
@@ -251,75 +250,8 @@ public class ChatHub : Hub
         var apiKey = await _configService.GetDecryptedAnthropicKeyAsync(userId)
             ?? throw new InvalidOperationException("Klucz Anthropic API nie jest skonfigurowany. Przejdź do Ustawień.");
         var cfg = await _configService.GetRawConfigAsync(userId);
-        var model = cfg?.AnthropicModel ?? "claude-sonnet-4-20250514";
-
-        // Detect if prompt needs agent (code execution, file generation)
-        var agentKeywords = new[] {
-            "napisz kod", "wygeneruj", "stwórz plik", "zrób wykres", "przeanalizuj dane",
-            "write code", "generate", "create file", "make chart", "analyze data",
-            "uruchom", "execute", "run", "compile", "build", "skompiluj"
-        };
-
-        var needsAgent = agentKeywords.Any(kw =>
-            prompt.Contains(kw, StringComparison.OrdinalIgnoreCase));
-
-        if (needsAgent)
-        {
-            return StreamAgentTaskAsync(apiKey, model, prompt);
-        }
-
-        return _openClawService.StreamChatAsync(apiKey, model, prompt, history);
-    }
-
-    private async IAsyncEnumerable<string> StreamAgentTaskAsync(
-        string apiKey, string model, string prompt,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
-    {
-        yield return "🔧 *Uruchamiam agenta... To może potrwać do kilku minut.*\n\n";
-
-        AgentTaskResult? result = null;
-        string? taskError = null;
-        try
-        {
-            result = await _openClawService.SubmitAgentTaskAsync(apiKey, model, prompt, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            taskError = $"[Błąd agenta: {ex.Message}]";
-        }
-
-        if (taskError is not null)
-        {
-            yield return taskError;
-            yield break;
-        }
-
-        if (!result!.Success)
-        {
-            yield return $"[Agent nie ukończył zadania: {result.Error}]";
-            yield break;
-        }
-
-        if (!string.IsNullOrWhiteSpace(result.DirectResponse))
-        {
-            yield return result.DirectResponse;
-        }
-
-        if (result.OutputFiles.Count > 0)
-        {
-            yield return "\n\n---\n📁 **Wygenerowane pliki:**\n";
-            foreach (var file in result.OutputFiles)
-            {
-                if (file.TooLarge)
-                {
-                    yield return $"- ⚠️ {file.FileName} — za duży ({file.SizeBytes / 1024}KB)\n";
-                }
-                else
-                {
-                    yield return $"- 📄 {file.FileName} ({file.SizeBytes / 1024}KB)\n";
-                }
-            }
-        }
+        return _openClawService.StreamAgentTaskAsync(
+            apiKey, cfg?.AnthropicModel ?? "claude-sonnet-4-20250514", prompt, history);
     }
 
     private async Task<IAsyncEnumerable<string>> StreamUniScraperAsync(

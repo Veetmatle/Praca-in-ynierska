@@ -327,6 +327,98 @@ a {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
 }
 
+/* ── Markdown content inside bubbles ──────────────────── */
+
+.message-bubble p {
+  margin: 0 0 6px 0;
+}
+
+.message-bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.message-bubble ul,
+.message-bubble ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+
+.message-bubble li {
+  margin-bottom: 2px;
+}
+
+.message-bubble li::marker {
+  color: var(--text-muted);
+}
+
+.message-bubble.user li::marker {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.message-bubble h1,
+.message-bubble h2,
+.message-bubble h3,
+.message-bubble h4 {
+  margin: 8px 0 4px 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.message-bubble h1 { font-size: 16px; }
+.message-bubble h2 { font-size: 15px; }
+
+.message-bubble blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  margin: 6px 0;
+  color: var(--text-secondary);
+}
+
+.message-bubble.user blockquote {
+  border-left-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.message-bubble a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.message-bubble.user a {
+  color: var(--accent-light);
+}
+
+.message-bubble hr {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 8px 0;
+}
+
+.message-bubble table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 13px;
+  width: 100%;
+}
+
+.message-bubble th,
+.message-bubble td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.message-bubble th {
+  background: rgba(0, 0, 0, 0.04);
+  font-weight: 600;
+}
+
+.message-bubble.user th {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .typing-indicator {
   align-self: flex-start;
   padding: 10px 14px;

@@ -77,3 +77,17 @@ public static class DtoMappers
         msg.Id, msg.Role.ToString(), msg.Content, msg.TokenCount, msg.CreatedAt
     );
 }
+
+public class GeminiAttachment
+{
+    public string FileName { get; set; } = "";
+    public string MimeType { get; set; } = "";
+    public string Base64Data { get; set; } = "";
+}
+
+public class AttachmentPayload
+{
+    public string FileName { get; set; } = "";
+    public string MimeType { get; set; } = "";
+    public string Base64Data { get; set; } = "";
+}

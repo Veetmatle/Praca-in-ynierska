@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using StudentApp.Api.Data.Entities;
+using StudentApp.Api.Models.DTOs;
 using StudentApp.Api.Security;
 using Serilog;
 
@@ -19,6 +20,14 @@ public interface IGeminiService
         string prompt,
         List<ChatMessage> history,
         CancellationToken cancellationToken = default);
+
+    IAsyncEnumerable<string> StreamResponseAsync(
+        string apiKey,
+        string model,
+        string prompt,
+        List<ChatMessage> history,
+        List<GeminiAttachment> attachments,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class GeminiService : IGeminiService
@@ -32,11 +41,23 @@ public sealed class GeminiService : IGeminiService
         _httpClientFactory = httpClientFactory;
     }
 
+    public IAsyncEnumerable<string> StreamResponseAsync(
+        string apiKey,
+        string model,
+        string prompt,
+        List<ChatMessage> history,
+        CancellationToken cancellationToken = default)
+    {
+        return StreamResponseAsync(apiKey, model, prompt, history,
+            new List<GeminiAttachment>(), cancellationToken);
+    }
+
     public async IAsyncEnumerable<string> StreamResponseAsync(
         string apiKey,
         string model,
         string prompt,
         List<ChatMessage> history,
+        List<GeminiAttachment> attachments,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var client = _httpClientFactory.CreateClient("GeminiApi");
@@ -79,12 +100,26 @@ public sealed class GeminiService : IGeminiService
             .Cast<object>()
             .ToList();
 
-        // Add new prompt
-        contextMessages.Add(new
+        // Add new prompt with optional inline attachments
+        var promptParts = new List<object>();
+        promptParts.Add(new { text = prompt + DefaultPromptSuffix });
+
+        if (attachments is not null)
         {
-            role = "user",
-            parts = new[] { new { text = prompt + DefaultPromptSuffix } }
-        });
+            foreach (var att in attachments)
+            {
+                promptParts.Add(new
+                {
+                    inline_data = new
+                    {
+                        mime_type = att.MimeType,
+                        data = att.Base64Data
+                    }
+                });
+            }
+        }
+
+        contextMessages.Add(new { role = "user", parts = promptParts });
 
         object requestBody;
         if (systemParts.Count > 0)

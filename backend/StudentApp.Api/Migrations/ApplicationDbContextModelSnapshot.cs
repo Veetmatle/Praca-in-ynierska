@@ -70,6 +70,9 @@ namespace StudentApp.Api.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("PublicId")
                         .HasColumnType("uuid");
 
@@ -89,7 +92,7 @@ namespace StudentApp.Api.Migrations
                     b.HasIndex("PublicId")
                         .IsUnique();
 
-                    b.HasIndex("UserId", "UpdatedAt");
+                    b.HasIndex("UserId", "IsPinned", "UpdatedAt");
 
                     b.ToTable("ChatSessions");
                 });

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
@@ -5,6 +6,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using StudentApp.Api.Data;
 using StudentApp.Api.Data.Entities;
+using StudentApp.Api.Models.DTOs;
 using StudentApp.Api.Services;
 using Serilog;
 
@@ -136,6 +138,104 @@ public class ChatHub : Hub
         }
     }
 
+    public async Task SendMessageWithAttachments(
+        string sessionPublicId, string content, List<AttachmentPayload> attachments)
+    {
+        var connectionId = Context.ConnectionId;
+        var now = DateTime.UtcNow;
+        if (_lastMessageTime.TryGetValue(connectionId, out var lastTime)
+            && (now - lastTime) < _minMessageInterval)
+        {
+            await Clients.Caller.SendAsync("Error", "Zbyt wiele wiadomości.");
+            return;
+        }
+        _lastMessageTime[connectionId] = now;
+
+        var userId = GetUserId();
+        if (userId is null) return;
+
+        var session = await _db.ChatSessions
+            .FirstOrDefaultAsync(s => s.PublicId == Guid.Parse(sessionPublicId) && s.UserId == userId.Value);
+        if (session is null)
+        {
+            await Clients.Caller.SendAsync("Error", "Sesja nie znaleziona.");
+            return;
+        }
+
+        if (session.Category != ChatCategory.Gemini)
+        {
+            await Clients.Caller.SendAsync("Error", "Załączniki obsługiwane tylko w Gemini.");
+            return;
+        }
+
+        var fileNames = string.Join(", ", attachments.Select(a => a.FileName));
+        var displayContent = string.IsNullOrWhiteSpace(content)
+            ? $"[Załączniki: {fileNames}]"
+            : $"{content}\n📎 {fileNames}";
+
+        var userMsg = await _chatService.AddMessageAsync(session.Id, MessageRole.User, displayContent);
+        await Clients.Caller.SendAsync("MessageSaved", new { id = userMsg.Id, role = "User", content = displayContent });
+
+        var history = await _chatService.GetRecentMessagesAsync(session.Id, 20);
+        var fullResponse = new StringBuilder();
+
+        string? apiKey = null;
+        string? initError = null;
+        try
+        {
+            apiKey = await _configService.GetDecryptedGeminiKeyAsync(userId.Value);
+        }
+        catch (Exception ex)
+        {
+            initError = $"[Błąd deszyfrowania klucza: {ex.Message}]";
+        }
+
+        if (apiKey is null && initError is null)
+            initError = "Klucz Gemini API nie jest skonfigurowany. Przejdź do Ustawień.";
+
+        if (initError is not null)
+        {
+            await Clients.Caller.SendAsync("StreamEnd", initError);
+            return;
+        }
+
+        var cfg = await _configService.GetRawConfigAsync(userId.Value);
+        var geminiAttachments = attachments.Select(a => new GeminiAttachment
+        {
+            FileName = a.FileName,
+            MimeType = a.MimeType,
+            Base64Data = a.Base64Data
+        }).ToList();
+
+        try
+        {
+            var prompt = string.IsNullOrWhiteSpace(content) ? "Przeanalizuj załączone pliki." : content;
+            await foreach (var chunk in _geminiService.StreamResponseAsync(
+                apiKey!, cfg?.GeminiModel ?? "gemini-2.5-flash",
+                prompt, history, geminiAttachments, Context.ConnectionAborted))
+            {
+                fullResponse.Append(chunk);
+                await Clients.Caller.SendAsync("StreamChunk", chunk);
+            }
+            await Clients.Caller.SendAsync("StreamEnd", (string?)null);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            var errorMsg = $"[Błąd: {ex.Message}]";
+            fullResponse.Append(errorMsg);
+            await Clients.Caller.SendAsync("StreamEnd", errorMsg);
+        }
+
+        if (fullResponse.Length > 0)
+        {
+            var assistantMsg = await _chatService.AddMessageAsync(
+                session.Id, MessageRole.Assistant, fullResponse.ToString());
+            await Clients.Caller.SendAsync("MessageSaved", new
+            { id = assistantMsg.Id, role = "Assistant", content = fullResponse.ToString() });
+        }
+    }
+
     private async Task<IAsyncEnumerable<string>> StreamGeminiAsync(
         int userId, ChatSession session, string prompt, List<ChatMessage> history)
     {
@@ -151,7 +251,75 @@ public class ChatHub : Hub
         var apiKey = await _configService.GetDecryptedAnthropicKeyAsync(userId)
             ?? throw new InvalidOperationException("Klucz Anthropic API nie jest skonfigurowany. Przejdź do Ustawień.");
         var cfg = await _configService.GetRawConfigAsync(userId);
-        return _openClawService.StreamChatAsync(apiKey, cfg?.AnthropicModel ?? "claude-sonnet-4-20250514", prompt, history);
+        var model = cfg?.AnthropicModel ?? "claude-sonnet-4-20250514";
+
+        // Detect if prompt needs agent (code execution, file generation)
+        var agentKeywords = new[] {
+            "napisz kod", "wygeneruj", "stwórz plik", "zrób wykres", "przeanalizuj dane",
+            "write code", "generate", "create file", "make chart", "analyze data",
+            "uruchom", "execute", "run", "compile", "build", "skompiluj"
+        };
+
+        var needsAgent = agentKeywords.Any(kw =>
+            prompt.Contains(kw, StringComparison.OrdinalIgnoreCase));
+
+        if (needsAgent)
+        {
+            return StreamAgentTaskAsync(apiKey, model, prompt);
+        }
+
+        return _openClawService.StreamChatAsync(apiKey, model, prompt, history);
+    }
+
+    private async IAsyncEnumerable<string> StreamAgentTaskAsync(
+        string apiKey, string model, string prompt,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        yield return "🔧 *Uruchamiam agenta... To może potrwać do kilku minut.*\n\n";
+
+        AgentTaskResult? result = null;
+        string? taskError = null;
+        try
+        {
+            result = await _openClawService.SubmitAgentTaskAsync(apiKey, model, prompt, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            taskError = $"[Błąd agenta: {ex.Message}]";
+        }
+
+        if (taskError is not null)
+        {
+            yield return taskError;
+            yield break;
+        }
+
+        if (!result!.Success)
+        {
+            yield return $"[Agent nie ukończył zadania: {result.Error}]";
+            yield break;
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.DirectResponse))
+        {
+            yield return result.DirectResponse;
+        }
+
+        if (result.OutputFiles.Count > 0)
+        {
+            yield return "\n\n---\n📁 **Wygenerowane pliki:**\n";
+            foreach (var file in result.OutputFiles)
+            {
+                if (file.TooLarge)
+                {
+                    yield return $"- ⚠️ {file.FileName} — za duży ({file.SizeBytes / 1024}KB)\n";
+                }
+                else
+                {
+                    yield return $"- 📄 {file.FileName} ({file.SizeBytes / 1024}KB)\n";
+                }
+            }
+        }
     }
 
     private async Task<IAsyncEnumerable<string>> StreamUniScraperAsync(

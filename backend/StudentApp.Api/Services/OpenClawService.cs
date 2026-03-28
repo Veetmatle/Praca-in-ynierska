@@ -21,6 +21,10 @@ public interface IOpenClawService
         string prompt,
         List<Data.Entities.ChatMessage> history,
         CancellationToken cancellationToken = default);
+
+    Task<AgentTaskResult> SubmitAgentTaskAsync(
+        string anthropicApiKey, string model, string prompt,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class OpenClawService : IOpenClawService
@@ -155,6 +159,90 @@ public sealed class OpenClawService : IOpenClawService
             yield return streamError;
     }
 
+    public async Task<AgentTaskResult> SubmitAgentTaskAsync(
+        string anthropicApiKey, string model, string prompt,
+        CancellationToken cancellationToken = default)
+    {
+        await ThrottleAsync(cancellationToken);
+        var client = _httpClientFactory.CreateClient("OpenClawApi");
+        var taskId = Guid.NewGuid().ToString("N")[..8];
+
+        // Submit task
+        var submitPayload = new
+        {
+            prompt,
+            task_id = taskId,
+            anthropic_api_key = anthropicApiKey,
+            model,
+            max_iterations = 10,
+            timeout_seconds = 300
+        };
+
+        var submitResponse = await client.PostAsJsonAsync(
+            $"{_baseUrl}/tasks", submitPayload, cancellationToken);
+        submitResponse.EnsureSuccessStatusCode();
+
+        // Poll for completion (max 5 minutes)
+        var deadline = DateTime.UtcNow.AddMinutes(5);
+        while (DateTime.UtcNow < deadline && !cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(2000, cancellationToken);
+
+            var statusResponse = await client.GetAsync(
+                $"{_baseUrl}/tasks/{taskId}", cancellationToken);
+            if (!statusResponse.IsSuccessStatusCode) continue;
+
+            var status = await statusResponse.Content
+                .ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
+
+            var statusStr = status.GetProperty("Status").GetString();
+            if (statusStr is "running" or "queued") continue;
+
+            if (statusStr == "failed")
+            {
+                return new AgentTaskResult
+                {
+                    Success = false,
+                    Error = status.TryGetProperty("Error", out var err) ? err.GetString() : "Task failed"
+                };
+            }
+
+            // Completed — get response and files
+            var result = new AgentTaskResult
+            {
+                Success = true,
+                DirectResponse = status.TryGetProperty("DirectResponse", out var dr) ? dr.GetString() : null
+            };
+
+            // Fetch files
+            var filesResponse = await client.GetAsync(
+                $"{_baseUrl}/tasks/{taskId}/files", cancellationToken);
+            if (filesResponse.IsSuccessStatusCode)
+            {
+                var filesJson = await filesResponse.Content
+                    .ReadFromJsonAsync<JsonElement>(cancellationToken: cancellationToken);
+
+                if (filesJson.TryGetProperty("Files", out var filesArr))
+                {
+                    foreach (var f in filesArr.EnumerateArray())
+                    {
+                        result.OutputFiles.Add(new AgentOutputFile
+                        {
+                            FileName = f.GetProperty("FileName").GetString() ?? "",
+                            ContentBase64 = f.TryGetProperty("ContentBase64", out var cb) ? cb.GetString() ?? "" : "",
+                            SizeBytes = f.TryGetProperty("SizeBytes", out var sb) ? sb.GetInt64() : 0,
+                            TooLarge = f.TryGetProperty("TooLarge", out var tl) && tl.GetBoolean()
+                        });
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        return new AgentTaskResult { Success = false, Error = "Task timed out (5 min)" };
+    }
+
     private async Task ThrottleAsync(CancellationToken ct)
     {
         await _rateLimiter.WaitAsync(ct);
@@ -170,4 +258,20 @@ public sealed class OpenClawService : IOpenClawService
             _rateLimiter.Release();
         }
     }
+}
+
+public class AgentTaskResult
+{
+    public bool Success { get; set; }
+    public string? DirectResponse { get; set; }
+    public string? Error { get; set; }
+    public List<AgentOutputFile> OutputFiles { get; set; } = new();
+}
+
+public class AgentOutputFile
+{
+    public string FileName { get; set; } = "";
+    public string ContentBase64 { get; set; } = "";
+    public long SizeBytes { get; set; }
+    public bool TooLarge { get; set; }
 }

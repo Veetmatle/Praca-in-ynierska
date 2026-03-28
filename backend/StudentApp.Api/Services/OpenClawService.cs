@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
@@ -80,6 +81,11 @@ public sealed class OpenClawService : IOpenClawService
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
+        int consecutiveErrors = 0;
+        const int maxConsecutiveErrors = 5;
+
+        try
+        {
         while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
         {
             var line = await reader.ReadLineAsync(cancellationToken);
@@ -99,11 +105,39 @@ public sealed class OpenClawService : IOpenClawService
                     else if (doc.RootElement.TryGetProperty("content", out var contentEl))
                         text = contentEl.GetString();
                 }
-                catch { text = data; }
+                catch (Exception ex)
+                {
+                    consecutiveErrors++;
+                    Log.Debug("OpenClaw stream: malformed chunk skipped. Error: {Error}, Raw: {Data}",
+                        ex.Message, data);
+
+                    if (consecutiveErrors >= maxConsecutiveErrors)
+                    {
+                        Log.Warning("OpenClaw stream: {Count} consecutive parse errors, aborting",
+                            consecutiveErrors);
+                        yield return "\n\n[Strumień przerwany — problem z odpowiedzią OpenClaw]";
+                        yield break;
+                    }
+                    continue;
+                }
 
                 if (!string.IsNullOrEmpty(text))
+                {
+                    consecutiveErrors = 0;
                     yield return text;
+                }
             }
+        }
+        }
+        catch (IOException ex)
+        {
+            Log.Warning("OpenClaw stream: connection lost: {Error}", ex.Message);
+            yield return "\n\n[Połączenie z OpenClaw zostało przerwane]";
+        }
+        catch (HttpRequestException ex)
+        {
+            Log.Warning("OpenClaw stream: HTTP error during streaming: {Error}", ex.Message);
+            yield return "\n\n[Błąd HTTP w strumieniu OpenClaw]";
         }
     }
 

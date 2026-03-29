@@ -20,7 +20,7 @@ from utils.file_manager import (
 )
 
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
-MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "5"))
+MAX_ITERATIONS = int(os.environ.get("MAX_ITERATIONS", "15"))
 _SESSION_TIMEOUT_MINUTES = int(os.environ.get("AGENT_SESSION_TIMEOUT_MINUTES", "10"))
 TIMEOUT_SECONDS = _SESSION_TIMEOUT_MINUTES * 60
 MAX_CONCURRENT_TASKS = int(os.environ.get("MAX_CONCURRENT_TASKS", "2"))

@@ -191,6 +191,46 @@ async def health_endpoint(request: Request) -> JSONResponse:
 
 
 # ── REST endpoints (for C# backend fast-path RAG) ─────────
+async def handle_fetch_file(request: Request) -> JSONResponse:
+    """Download a file from URL and return as base64."""
+    import base64
+    import httpx as httpx_client
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    url = body.get("url")
+    if not url:
+        return JSONResponse({"error": "Field 'url' is required"}, status_code=400)
+
+    max_size = 15 * 1024 * 1024  # 15 MB
+    try:
+        async with httpx_client.AsyncClient(timeout=30, follow_redirects=True) as client:
+            resp = await client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            resp.raise_for_status()
+
+            if len(resp.content) > max_size:
+                return JSONResponse({"error": f"File too large ({len(resp.content)} bytes)"}, status_code=413)
+
+            content_type = resp.headers.get("content-type", "application/octet-stream")
+            filename = url.split("/")[-1].split("?")[0] or "document"
+
+            return JSONResponse({
+                "fileName": filename,
+                "mimeType": content_type.split(";")[0].strip(),
+                "base64Data": base64.b64encode(resp.content).decode(),
+                "sizeBytes": len(resp.content),
+            })
+    except httpx_client.HTTPError as e:
+        return JSONResponse({"error": f"Download failed: {str(e)[:200]}"}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"error": f"Error: {str(e)[:200]}"}, status_code=500)
+
+
 async def handle_scrape(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -261,6 +301,7 @@ app = Starlette(
     routes=[
         Route("/health", health_endpoint),
         Route("/api/scrape", handle_scrape, methods=["POST"]),
+        Route("/api/fetch-file", handle_fetch_file, methods=["POST"]),
         Route("/api/links/{university}", handle_links),
         Route("/sse", handle_sse),
         Mount("/messages/", app=sse.handle_post_message),

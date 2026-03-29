@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './contexts/AuthContext';
 import { useChat } from './hooks/useChat';
 import * as api from './services/api';
@@ -17,8 +17,13 @@ export default function App() {
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [activeSession, setActiveSession] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [streamingText, setStreamingText] = useState('');
+  const [streamingMap, setStreamingMap] = useState({});
+  const [streamingSessions, setStreamingSessions] = useState(new Set());
   const [pendingFiles, setPendingFiles] = useState([]);
+
+  const activeStreamingText = streamingMap[activeSessionId] || '';
+  const isActiveStreaming = streamingSessions.has(activeSessionId);
+  const streamingSessionRef = useRef(null);
 
   const [showNewSession, setShowNewSession] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -42,13 +47,23 @@ export default function App() {
 
   // SignalR event handlers
   useEffect(() => {
-    chat.onChunk((chunk) => {
-      setStreamingText((prev) => prev + chunk);
+    chat.onChunk((sessionId, text) => {
+      setStreamingMap((prev) => ({ ...prev, [sessionId]: (prev[sessionId] || '') + text }));
     });
 
-    chat.onEnd((error) => {
-      setStreamingText('');
-      if (error) {
+    chat.onEnd((sessionId, error) => {
+      setStreamingMap((prev) => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
+      setStreamingSessions((prev) => {
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
+      streamingSessionRef.current = null;
+      if (error && sessionId === activeSessionId) {
         setMessages((prev) => [...prev, { id: Date.now(), role: 'Assistant', content: error }]);
       }
     });
@@ -56,15 +71,12 @@ export default function App() {
     chat.onMessageSaved((msg) => {
       setMessages((prev) => {
         if (msg.role === 'User') {
-          // Replace optimistic temp message with real one from DB
           const withoutTemp = prev.filter((m) => !m._temp);
           return [...withoutTemp, msg];
         }
-        // Assistant: add only if not duplicate
         if (prev.some((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
-      setStreamingText('');
     });
 
     chat.onTitleUpdated(({ sessionPublicId, title }) => {
@@ -76,21 +88,27 @@ export default function App() {
 
     chat.onError((msg) => {
       setMessages((prev) => [...prev, { id: Date.now(), role: 'Assistant', content: `[Błąd: ${msg}]` }]);
+      const sid = streamingSessionRef.current;
+      if (sid) {
+        setStreamingSessions((prev) => {
+          const next = new Set(prev);
+          next.delete(sid);
+          return next;
+        });
+      }
     });
 
     chat.onFile((file) => {
       setPendingFiles((prev) => {
-        // Deduplicate by fileName
         if (prev.some(f => f.fileName === file.fileName)) return prev;
         return [...prev, file];
       });
     });
-  }, [chat]);
+  }, [chat, activeSessionId]);
 
   // Select session
   const handleSelectSession = async (publicId) => {
     setActiveSessionId(publicId);
-    setStreamingText('');
     setPendingFiles([]);
     try {
       const detail = await api.getSession(publicId);
@@ -114,15 +132,23 @@ export default function App() {
   };
 
   // Send message
-  const handleSendMessage = (content) => {
+  const handleSendMessage = (content, attachments = []) => {
     if (!activeSessionId) return;
-
-    // Optimistic UI: show user message immediately
-    const tempMsg = { id: Date.now(), role: 'User', content, _temp: true };
+    const displayContent = attachments?.length > 0
+      ? `${content}\n📎 ${attachments.map(a => a.fileName).join(', ')}`
+      : content;
+    const tempMsg = { id: Date.now(), role: 'User', content: displayContent || content, _temp: true };
     setMessages((prev) => [...prev, tempMsg]);
-    setStreamingText('');
 
-    chat.sendMessage(activeSessionId, content);
+    streamingSessionRef.current = activeSessionId;
+    setStreamingSessions((prev) => new Set(prev).add(activeSessionId));
+    setStreamingMap((prev) => ({ ...prev, [activeSessionId]: '' }));
+
+    if (attachments?.length > 0 && chat.sendMessageWithAttachments) {
+      chat.sendMessageWithAttachments(activeSessionId, content, attachments);
+    } else {
+      chat.sendMessage(activeSessionId, content);
+    }
   };
 
   const handleTogglePin = async (publicId) => {
@@ -151,6 +177,7 @@ export default function App() {
       <Sidebar
         sessions={sessions}
         activeSessionId={activeSessionId}
+        streamingSessions={streamingSessions}
         onSelectSession={handleSelectSession}
         onNewSession={() => setShowNewSession(true)}
         onOpenSettings={() => setShowSettings(true)}
@@ -162,8 +189,8 @@ export default function App() {
       <ChatWindow
         session={activeSession}
         messages={messages}
-        streamingText={streamingText}
-        isStreaming={chat.isStreaming}
+        streamingText={activeStreamingText}
+        isStreaming={isActiveStreaming}
         onSendMessage={handleSendMessage}
         pendingFiles={pendingFiles}
         onClearFiles={() => setPendingFiles([])}

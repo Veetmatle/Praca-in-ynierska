@@ -8,7 +8,6 @@ import { getAccessToken } from '../services/api';
  */
 export function useChat() {
   const [isConnected, setIsConnected] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
   const connectionRef = useRef(null);
   const onChunkRef = useRef(null);
   const onEndRef = useRef(null);
@@ -26,13 +25,22 @@ export function useChat() {
       .configureLogging(LogLevel.Warning)
       .build();
 
-    connection.on('StreamChunk', (chunk) => {
-      onChunkRef.current?.(chunk);
+    connection.on('StreamChunk', (data) => {
+      if (typeof data === 'object' && data.sessionId) {
+        onChunkRef.current?.(data.sessionId, data.text);
+      } else {
+        // Fallback for old format (plain string)
+        onChunkRef.current?.(null, data);
+      }
     });
 
-    connection.on('StreamEnd', (error) => {
-      setIsStreaming(false);
-      onEndRef.current?.(error);
+    connection.on('StreamEnd', (data) => {
+      if (typeof data === 'object' && data.sessionId !== undefined) {
+        onEndRef.current?.(data.sessionId, data.error);
+      } else {
+        // Fallback for old format (plain string or null)
+        onEndRef.current?.(null, data);
+      }
     });
 
     connection.on('MessageSaved', (msg) => {
@@ -44,7 +52,6 @@ export function useChat() {
     });
 
     connection.on('Error', (msg) => {
-      setIsStreaming(false);
       onErrorRef.current?.(msg);
     });
 
@@ -78,11 +85,9 @@ export function useChat() {
 
   const sendMessage = useCallback(async (sessionPublicId, content) => {
     if (!connectionRef.current) return;
-    setIsStreaming(true);
     try {
       await connectionRef.current.invoke('SendMessage', sessionPublicId, content);
     } catch (err) {
-      setIsStreaming(false);
       onErrorRef.current?.(err.message);
     }
   }, []);
@@ -93,7 +98,6 @@ export function useChat() {
 
   return {
     isConnected,
-    isStreaming,
     connect,
     disconnect,
     sendMessage,

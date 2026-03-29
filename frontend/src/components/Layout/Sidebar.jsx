@@ -13,6 +13,7 @@ const CATEGORIES = [
 export default function Sidebar({
   sessions,
   activeSessionId,
+  streamingSessions = new Set(),
   onSelectSession,
   onNewSession,
   onOpenSettings,
@@ -96,6 +97,9 @@ export default function Sidebar({
             <div className="title">
               {session.isPinned && <Pin size={12} style={{ marginRight: 4, color: 'var(--accent)' }} />}
               {getCategoryIcon(session.category)} {session.title}
+              {streamingSessions.has(session.publicId) && (
+                <span className="session-streaming-dot" />
+              )}
             </div>
             <div className="meta">
               {formatDate(session.updatedAt)}

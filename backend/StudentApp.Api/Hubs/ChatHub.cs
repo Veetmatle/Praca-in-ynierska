@@ -98,10 +98,10 @@ public class ChatHub : Hub
             await foreach (var chunk in stream.WithCancellation(Context.ConnectionAborted))
             {
                 fullResponse.Append(chunk);
-                await Clients.Caller.SendAsync("StreamChunk", chunk);
+                await Clients.Caller.SendAsync("StreamChunk", new { sessionId = sessionPublicId, text = chunk });
             }
 
-            await Clients.Caller.SendAsync("StreamEnd", (string?)null);
+            await Clients.Caller.SendAsync("StreamEnd", new { sessionId = sessionPublicId, error = (string?)null });
         }
         catch (OperationCanceledException)
         {
@@ -112,7 +112,7 @@ public class ChatHub : Hub
             Log.Error(ex, "Error streaming response for session {SessionId}", sessionPublicId);
             var errorMsg = $"[Wystąpił błąd: {ex.Message}]";
             fullResponse.Append(errorMsg);
-            await Clients.Caller.SendAsync("StreamEnd", errorMsg);
+            await Clients.Caller.SendAsync("StreamEnd", new { sessionId = sessionPublicId, error = errorMsg });
         }
 
         // Save assistant response
@@ -204,7 +204,7 @@ public class ChatHub : Hub
 
         if (initError is not null)
         {
-            await Clients.Caller.SendAsync("StreamEnd", initError);
+            await Clients.Caller.SendAsync("StreamEnd", new { sessionId = sessionPublicId, error = initError });
             return;
         }
 
@@ -224,16 +224,16 @@ public class ChatHub : Hub
                 prompt, history, geminiAttachments, Context.ConnectionAborted))
             {
                 fullResponse.Append(chunk);
-                await Clients.Caller.SendAsync("StreamChunk", chunk);
+                await Clients.Caller.SendAsync("StreamChunk", new { sessionId = sessionPublicId, text = chunk });
             }
-            await Clients.Caller.SendAsync("StreamEnd", (string?)null);
+            await Clients.Caller.SendAsync("StreamEnd", new { sessionId = sessionPublicId, error = (string?)null });
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             var errorMsg = $"[Błąd: {ex.Message}]";
             fullResponse.Append(errorMsg);
-            await Clients.Caller.SendAsync("StreamEnd", errorMsg);
+            await Clients.Caller.SendAsync("StreamEnd", new { sessionId = sessionPublicId, error = errorMsg });
         }
 
         if (fullResponse.Length > 0)

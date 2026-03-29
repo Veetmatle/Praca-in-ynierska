@@ -18,6 +18,7 @@ export default function App() {
   const [activeSession, setActiveSession] = useState(null);
   const [messages, setMessages] = useState([]);
   const [streamingText, setStreamingText] = useState('');
+  const [pendingFiles, setPendingFiles] = useState([]);
 
   const [showNewSession, setShowNewSession] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -76,12 +77,21 @@ export default function App() {
     chat.onError((msg) => {
       setMessages((prev) => [...prev, { id: Date.now(), role: 'Assistant', content: `[Błąd: ${msg}]` }]);
     });
+
+    chat.onFile((file) => {
+      setPendingFiles((prev) => {
+        // Deduplicate by fileName
+        if (prev.some(f => f.fileName === file.fileName)) return prev;
+        return [...prev, file];
+      });
+    });
   }, [chat]);
 
   // Select session
   const handleSelectSession = async (publicId) => {
     setActiveSessionId(publicId);
     setStreamingText('');
+    setPendingFiles([]);
     try {
       const detail = await api.getSession(publicId);
       setActiveSession(detail);
@@ -155,6 +165,8 @@ export default function App() {
         streamingText={streamingText}
         isStreaming={chat.isStreaming}
         onSendMessage={handleSendMessage}
+        pendingFiles={pendingFiles}
+        onClearFiles={() => setPendingFiles([])}
       />
 
       {showNewSession && (

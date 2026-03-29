@@ -128,6 +128,16 @@ public class ChatHub : Hub
             });
         }
 
+        // ── Deliver agent output files to frontend ──
+        if (session.Category == ChatCategory.OpenClaw)
+        {
+            var taskId = _openClawService.LastTaskId;
+            if (!string.IsNullOrEmpty(taskId))
+            {
+                _ = DeliverAgentFilesAsync(taskId, Context.ConnectionAborted);
+            }
+        }
+
         // Auto-title on first message
         if (session.Title == "Nowa rozmowa" && content.Length > 3)
         {
@@ -262,7 +272,100 @@ public class ChatHub : Hub
         var cfg = await _configService.GetRawConfigAsync(userId);
         if (cfg is null)
             throw new InvalidOperationException("Konfiguracja uczelni nie jest ustawiona. Przejdź do Ustawień.");
+
+        // Pre-fetch scraper data to identify files to download
+        ScraperResult? scraperData = null;
+        try
+        {
+            scraperData = await _uniScraperService.FetchScrapedDataAsync(prompt, cfg, Context.ConnectionAborted);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Pre-fetch scraper data failed — falling back to text-only");
+        }
+
+        // Fire-and-forget: download up to 3 files in parallel, send each as FileAvailable
+        if (scraperData?.BestMatchFiles.Count > 0)
+        {
+            _ = DownloadAndSendFilesAsync(scraperData.BestMatchFiles, Context.ConnectionAborted);
+        }
+
         return _uniScraperService.StreamQueryAsync(apiKey, cfg.GeminiModel, prompt, cfg, history);
+    }
+
+    /// <summary>
+    /// Downloads up to 3 files in parallel and sends each as a separate FileAvailable event.
+    /// Runs in background — does not block text streaming.
+    /// </summary>
+    private async Task DownloadAndSendFilesAsync(List<ScrapedFile> files, CancellationToken ct)
+    {
+        try
+        {
+            // Small delay to let text streaming start first
+            await Task.Delay(500, ct);
+
+            var downloaded = await _uniScraperService.DownloadFilesAsync(files, ct);
+
+            foreach (var file in downloaded)
+            {
+                if (string.IsNullOrEmpty(file.Base64Data)) continue;
+
+                await Clients.Caller.SendAsync("FileAvailable", new
+                {
+                    fileName = file.FileName,
+                    mimeType = file.MimeType,
+                    base64Data = file.Base64Data,
+                    sizeBytes = file.SizeBytes,
+                    sourceUrl = file.SourceUrl,
+                }, ct);
+
+                Log.Information("Sent file {FileName} ({Size}KB) to client",
+                    file.FileName, file.SizeBytes / 1024);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to download/send files to client");
+        }
+    }
+
+    /// <summary>
+    /// Fetches output files from completed OpenClaw agent task and sends each
+    /// to the frontend as a FileAvailable event — same UX as UniScraper files.
+    /// Replicates the Discord bot's file delivery pattern.
+    /// </summary>
+    private async Task DeliverAgentFilesAsync(string taskId, CancellationToken ct)
+    {
+        try
+        {
+            // Small delay — let the final text message render first
+            await Task.Delay(800, ct);
+
+            var files = await _openClawService.GetTaskFilesAsync(taskId, ct);
+            if (files.Count == 0) return;
+
+            Log.Information("Delivering {Count} agent file(s) from task {TaskId}", files.Count, taskId);
+
+            foreach (var file in files)
+            {
+                if (string.IsNullOrEmpty(file.Base64Data)) continue;
+
+                await Clients.Caller.SendAsync("FileAvailable", new
+                {
+                    fileName = file.FileName,
+                    mimeType = file.MimeType,
+                    base64Data = file.Base64Data,
+                    sizeBytes = file.SizeBytes,
+                    sourceUrl = file.SourceUrl,
+                }, ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to deliver agent files for task {TaskId}", taskId);
+        }
     }
 
     public override Task OnDisconnectedAsync(Exception? exception)

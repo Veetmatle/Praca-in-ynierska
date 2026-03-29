@@ -84,9 +84,19 @@ class PolitechnikaKrakowskaScraper(BaseScraper):
                 context_parts.append(f"   Kategoria: {link.category}")
             sources.append({"text": link.text, "url": link.url, "category": link.category})
 
+        # Find up to 3 best matching downloadable files (sorted by score)
+        best_files = []
+        file_extensions = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx")
+        for link, score in top_links:
+            if any(link.url.lower().endswith(ext) for ext in file_extensions):
+                best_files.append({"text": link.text, "url": link.url, "score": score})
+                if len(best_files) >= 3:
+                    break
+
         return {
             "context": "\n".join(context_parts),
             "sources": sources,
+            "best_match_files": best_files,  # 0-3 downloadable files, sorted by relevance
             "cached": self._is_cache_valid(),
         }
 

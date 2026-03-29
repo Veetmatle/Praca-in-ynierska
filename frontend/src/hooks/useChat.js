@@ -15,6 +15,7 @@ export function useChat() {
   const onMessageSavedRef = useRef(null);
   const onTitleUpdatedRef = useRef(null);
   const onErrorRef = useRef(null);
+  const onFileRef = useRef(null);
 
   const connect = useCallback(async () => {
     if (connectionRef.current) return;
@@ -45,6 +46,10 @@ export function useChat() {
     connection.on('Error', (msg) => {
       setIsStreaming(false);
       onErrorRef.current?.(msg);
+    });
+
+    connection.on('FileAvailable', (file) => {
+      onFileRef.current?.(file);
     });
 
     connection.onreconnecting(() => setIsConnected(false));
@@ -97,5 +102,6 @@ export function useChat() {
     onMessageSaved: (fn) => { onMessageSavedRef.current = fn; },
     onTitleUpdated: (fn) => { onTitleUpdatedRef.current = fn; },
     onError: (fn) => { onErrorRef.current = fn; },
+    onFile: (fn) => { onFileRef.current = fn; },
   };
 }

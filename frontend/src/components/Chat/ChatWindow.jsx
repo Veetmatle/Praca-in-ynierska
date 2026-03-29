@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send } from 'lucide-react';
+import { Send, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 export default function ChatWindow({
@@ -8,6 +8,8 @@ export default function ChatWindow({
   streamingText,
   isStreaming,
   onSendMessage,
+  pendingFiles = [],
+  onClearFiles,
 }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
@@ -30,6 +32,23 @@ export default function ChatWindow({
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleDownloadFile = (file) => {
+    const byteChars = atob(file.base64Data);
+    const byteNumbers = new Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+      byteNumbers[i] = byteChars.charCodeAt(i);
+    }
+    const blob = new Blob([new Uint8Array(byteNumbers)], { type: file.mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleTextareaChange = (e) => {
@@ -76,6 +95,28 @@ export default function ChatWindow({
         {isStreaming && !streamingText && (
           <div className="typing-indicator">
             <span /><span /><span />
+          </div>
+        )}
+
+        {pendingFiles.length > 0 && (
+          <div className="files-download-container">
+            {pendingFiles.map((file, idx) => (
+              <div key={idx} className="file-download-card">
+                <div className="file-info">
+                  <span className="file-icon">📄</span>
+                  <div>
+                    <div className="file-name">{file.fileName}</div>
+                    <div className="file-meta">
+                      {(file.sizeBytes / 1024).toFixed(0)} KB
+                    </div>
+                  </div>
+                </div>
+                <button className="btn btn-primary btn-sm" onClick={() => handleDownloadFile(file)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Download size={14} /> Pobierz
+                </button>
+              </div>
+            ))}
           </div>
         )}
 

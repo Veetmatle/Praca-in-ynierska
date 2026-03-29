@@ -24,6 +24,11 @@ public interface IOpenClawService
         string prompt,
         List<Data.Entities.ChatMessage> history,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Last submitted agent task ID — read by ChatHub to fetch output files.</summary>
+    string? LastTaskId { get; }
+
+    Task<List<DownloadedFile>> GetTaskFilesAsync(string taskId, CancellationToken ct);
 }
 
 public sealed class OpenClawService : IOpenClawService
@@ -32,6 +37,12 @@ public sealed class OpenClawService : IOpenClawService
     private readonly string _baseUrl;
     private readonly SemaphoreSlim _rateLimiter = new(1, 1);
     private DateTime _lastRequestTime = DateTime.MinValue;
+
+    /// <summary>
+    /// Last submitted agent task ID — read by ChatHub to fetch output files.
+    /// Thread-safe: each SignalR connection runs on its own scope.
+    /// </summary>
+    public string? LastTaskId { get; private set; }
 
     public OpenClawService(IHttpClientFactory httpClientFactory, IConfiguration config)
     {
@@ -49,6 +60,7 @@ public sealed class OpenClawService : IOpenClawService
         await ThrottleAsync(cancellationToken);
         var client = _httpClientFactory.CreateClient("OpenClawApi");
         var taskId = Guid.NewGuid().ToString("N")[..8];
+        LastTaskId = taskId;
 
         // ── Build prompt with recent history context ──
         var historyContext = "";
@@ -230,6 +242,68 @@ public sealed class OpenClawService : IOpenClawService
         }
 
         yield return "\n✅ **Zadanie zakończone.**\n";
+    }
+
+    public async Task<List<DownloadedFile>> GetTaskFilesAsync(string taskId, CancellationToken ct)
+    {
+        var client = _httpClientFactory.CreateClient("OpenClawApi");
+        var files = new List<DownloadedFile>();
+
+        try
+        {
+            var response = await client.GetAsync($"{_baseUrl}/tasks/{taskId}/files", ct);
+            if (!response.IsSuccessStatusCode) return files;
+
+            var result = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+            if (!result.TryGetProperty("Files", out var filesArr)) return files;
+
+            foreach (var f in filesArr.EnumerateArray())
+            {
+                var tooLarge = f.TryGetProperty("TooLarge", out var tl) && tl.GetBoolean();
+                if (tooLarge) continue;
+
+                var base64 = f.TryGetProperty("ContentBase64", out var cb) ? cb.GetString() ?? "" : "";
+                if (string.IsNullOrEmpty(base64)) continue;
+
+                var fileName = f.GetProperty("FileName").GetString() ?? "file";
+                files.Add(new DownloadedFile
+                {
+                    FileName = fileName,
+                    MimeType = GuessMimeType(fileName),
+                    Base64Data = base64,
+                    SizeBytes = f.TryGetProperty("SizeBytes", out var sb) ? sb.GetInt64() : 0,
+                    SourceUrl = $"agent://{taskId}/{fileName}",
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to fetch agent files for task {TaskId}", taskId);
+        }
+
+        return files;
+    }
+
+    private static string GuessMimeType(string fileName)
+    {
+        var ext = System.IO.Path.GetExtension(fileName).ToLowerInvariant();
+        return ext switch
+        {
+            ".pdf" => "application/pdf",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".svg" => "image/svg+xml",
+            ".csv" => "text/csv",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".py" => "text/x-python",
+            ".js" => "text/javascript",
+            ".html" => "text/html",
+            ".json" => "application/json",
+            ".zip" => "application/zip",
+            ".txt" => "text/plain",
+            _ => "application/octet-stream",
+        };
     }
 
     private async Task ThrottleAsync(CancellationToken ct)

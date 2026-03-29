@@ -749,6 +749,61 @@ a {
   background: var(--text-muted);
 }
 
+/* ── File Download Cards ──────────────────────────────── */
+
+.files-download-container {
+  align-self: flex-start;
+  max-width: 72%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.file-download-card {
+  background: var(--bg-bubble-assistant);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.file-download-card .file-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.file-download-card .file-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.file-download-card .file-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-download-card .file-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.btn-sm {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
 /* ── Responsive ───────────────────────────────────────── */
 
 @media (max-width: 768px) {

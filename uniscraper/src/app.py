@@ -224,6 +224,7 @@ async def handle_scrape(request: Request) -> JSONResponse:
     return JSONResponse({
         "context": result.get("context", ""),
         "sources": result.get("sources", []),
+        "best_match_files": result.get("best_match_files", []),
         "university": university,
         "cached": result.get("cached", False),
     })
